@@ -69,13 +69,29 @@ jobs:
         run: python scripts/bundle_dist.py
 
       - name: Smoke test binary
-        shell: bash
         run: |
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            ./dist/filekind/filekind.exe --help
-          else
-            ./dist/filekind/filekind --help
-          fi
+          python - <<'PY'
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          platform = "${{ matrix.platform }}"
+          exe = Path("dist/filekind/filekind.exe" if platform == "windows" else "dist/filekind/filekind")
+          if not exe.is_file():
+              print(f"Missing binary: {exe}", file=sys.stderr)
+              raise SystemExit(1)
+
+          result = subprocess.run(
+              [exe.name, "--help"],
+              cwd=exe.parent,
+              capture_output=True,
+              text=True,
+              encoding="utf-8",
+              errors="replace",
+          )
+          print((result.stdout or result.stderr)[:400])
+          raise SystemExit(result.returncode)
+          PY
 
       - name: Archive build (macOS)
         if: matrix.platform == 'macos'
