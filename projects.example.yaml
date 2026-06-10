@@ -1,0 +1,43 @@
+# Copy to projects.yaml and edit for your environment.
+
+hardware_profile: 8gb
+
+# 默认目录（与 projects.yaml / filekind 同目录；run 可不写路径参数）
+paths:
+  source: 待整理
+  dest: 已整理
+  # 项目清单 Excel（放在「待整理」或与本文件同目录；分类时读取，该文件本身不会被移动）
+  inventory_excel: "国高资料清单2026 版型清单.xlsx"
+  # LLM 分类提示词（与 projects.yaml 同目录；见 classify_prompts.example.yaml）
+  classify_prompts: classify_prompts.yaml
+
+runtime:
+  load_models_sequentially: true
+  llm_confidence_threshold: 0.65
+  max_files_per_run: 500
+  summary_max_chars: 300
+  extract_max_pages: 3
+  text_fallback_chars: 3000
+  excel_max_rows: 100
+  cluster_similarity_threshold: 0.72
+  dry_run_by_default: true
+
+code_patterns:
+  - '(?i)(PROJ|SYS|PRJ)[-_]?\d{4}[-_]?\d+'
+  - '(?i)[A-Z]{2,10}-\d{3,6}'
+  - '(?i)\d{6}--[A-Z0-9]+'
+
+models:
+  embedding: BAAI/bge-small-zh-v1.5
+  llm_gguf: ""  # path to Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+  ocr: mobile
+
+target_layout:
+  unclassified_dir: _未分类
+  # 文档类（pdf/doc/xlsx 等）直接放在项目目录下；仅非文档类型分子目录
+  subdirs_by_extension:
+    images: [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"]
+    code: [".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h", ".sql", ".yaml", ".yml", ".json"]
+    archives: [".zip", ".tar", ".gz", ".7z", ".rar"]
+
+# 项目列表来自 paths.inventory_excel 指定的 Excel，无需在此手写 projects 段。

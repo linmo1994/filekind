@@ -1,0 +1,25 @@
+---
+description: 修改 filekind 源码后自动执行 PyInstaller 打包
+globs: filekind/**,scripts/**,pyproject.toml,filekind.spec,filekind_main.py,projects.example.yaml,classify_prompts.example.yaml
+alwaysApply: true
+---
+
+# 代码变更后自动打包
+
+在完成对本项目的**功能性代码修改**后（Python 源码、打包配置、`.command` 脚本、`projects.example.yaml` 等），在回复用户之前**必须**执行：
+
+```bash
+./scripts/build_executable.sh
+```
+
+## 要求
+
+- 打包失败时：修复问题并重跑，直到成功或明确向用户说明阻塞原因。
+- 打包成功后：在回复中给出产物路径 `dist/filekind/` 及是否更新了 `scripts/双击可整理文件.command`。
+- 仅改 README/注释且用户未要求打包时，可跳过。
+
+## 产物
+
+- 可执行文件：`dist/filekind/filekind`
+- 双击脚本：`dist/filekind/双击可整理文件.command`
+- 默认目录：`dist/filekind/待整理/`、`dist/filekind/已整理/`

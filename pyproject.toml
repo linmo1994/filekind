@@ -1,0 +1,33 @@
+[project]
+name = "filekind"
+version = "0.1.0"
+description = "Local file organizer by software project (rules + embeddings + optional LLM)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "typer>=0.12.0",
+    "pyyaml>=6.0",
+    "pymupdf>=1.24.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=1.0.0",
+    "openpyxl>=3.1.0",
+    "numpy>=1.26.0",
+    "fastembed>=0.3.0",
+]
+
+[project.optional-dependencies]
+llm = ["llama-cpp-python>=0.2.0"]
+ocr = ["paddleocr>=2.7.0", "paddlepaddle>=2.6.0"]
+dev = ["pytest>=8.0.0"]
+build = ["pyinstaller>=6.0.0"]
+
+[project.scripts]
+filekind = "filekind.cli:app"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["filekind*"]
