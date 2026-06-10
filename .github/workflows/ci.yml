@@ -78,7 +78,7 @@ jobs:
       - name: Archive build (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/filekind -DestinationPath ${{ matrix.artifact }}.zip -Force
+        run: tar -a -c -f ${{ matrix.artifact }}.zip -C dist filekind
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
