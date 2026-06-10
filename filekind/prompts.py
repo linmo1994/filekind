@@ -68,7 +68,6 @@ def resolve_classify_prompts_path(config_path: Path, config: AppConfig) -> Path 
             [
                 base / path_setting,
                 base / path_setting.name,
-                Path.cwd() / path_setting,
             ]
         )
 

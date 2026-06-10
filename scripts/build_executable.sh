@@ -17,20 +17,13 @@ pip install pyinstaller -q
 
 pyinstaller --noconfirm --clean filekind.spec
 
+python scripts/bundle_dist.py
+
 OUT="$ROOT/dist/filekind/filekind"
 if [[ ! -x "$OUT" ]]; then
   echo "Build failed: $OUT not found" >&2
   exit 1
 fi
-
-# Convenience bundle: config template next to binary
-cp -f projects.example.yaml dist/filekind/projects.yaml
-cp -f projects.example.yaml dist/filekind/projects.example.yaml
-cp -f classify_prompts.example.yaml dist/filekind/classify_prompts.yaml
-cp -f classify_prompts.example.yaml dist/filekind/classify_prompts.example.yaml
-cp -f scripts/双击可整理文件.command dist/filekind/双击可整理文件.command
-mkdir -p dist/filekind/待整理 dist/filekind/已整理
-chmod +x dist/filekind/双击可整理文件.command
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   xattr -cr dist/filekind 2>/dev/null || true
