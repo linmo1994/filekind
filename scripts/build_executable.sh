@@ -43,5 +43,5 @@ echo "  # 将文件放入 ./待整理，然后双击 双击可整理文件.comma
 echo "  # 或在终端: ./filekind run --apply --no-dry-run"
 echo ""
 echo "Note: first run may download embedding model (~100MB) to ~/.cache."
-echo "LLM: bundled when built with .[llm]; place GGUF under dist/filekind/models/ (see scripts/download_llm_model.py)."
+echo "LLM: bundled when built with .[llm]; place GGUF under dist/filekind/_系统/models/ (see scripts/download_llm_model.py)."
 echo "OCR: bundled when built with .[ocr]; first OCR may download Chinese models to ~/.paddleocr/."

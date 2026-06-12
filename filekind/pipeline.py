@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from filekind.classify import classify_records
-from filekind.config import load_config
+from filekind.config import default_work_dir, load_config
 from filekind.inventory_picker import resolve_inventory_for_run
 from filekind.extract import extract_text
 from filekind.extract.ocr import (
@@ -165,7 +165,7 @@ def run_pipeline(
     )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    work = work_dir or (Path.cwd() / "filekind-work" / run_id)
+    work = work_dir or default_work_dir(config_path, run_id)
     work.mkdir(parents=True, exist_ok=True)
 
     plan_path = work / "plan.json"

@@ -31,9 +31,28 @@ macos_authorize() {
 }
 
 ensure_config() {
-  if [[ ! -f "$SCRIPT_DIR/projects.yaml" && -f "$SCRIPT_DIR/projects.example.yaml" ]]; then
-    cp "$SCRIPT_DIR/projects.example.yaml" "$SCRIPT_DIR/projects.yaml"
-    echo "已从 projects.example.yaml 生成 projects.yaml。"
+  mkdir -p "$SCRIPT_DIR/_系统"
+  if [[ -f "$SCRIPT_DIR/_系统/projects.yaml" ]]; then
+    return 0
+  fi
+  if [[ -f "$SCRIPT_DIR/_系统/projects.example.yaml" ]]; then
+    cp "$SCRIPT_DIR/_系统/projects.example.yaml" "$SCRIPT_DIR/_系统/projects.yaml"
+    echo "已从 _系统/projects.example.yaml 生成 _系统/projects.yaml。"
+    return 0
+  fi
+  if [[ -f "$SCRIPT_DIR/projects.example.yaml" ]]; then
+    cp "$SCRIPT_DIR/projects.example.yaml" "$SCRIPT_DIR/_系统/projects.yaml"
+    echo "已从 projects.example.yaml 生成 _系统/projects.yaml。"
+  fi
+}
+
+config_file() {
+  if [[ -f "$SCRIPT_DIR/_系统/projects.yaml" ]]; then
+    echo "$SCRIPT_DIR/_系统/projects.yaml"
+  elif [[ -f "$SCRIPT_DIR/projects.yaml" ]]; then
+    echo "$SCRIPT_DIR/projects.yaml"
+  else
+    echo "$SCRIPT_DIR/_系统/projects.yaml"
   fi
 }
 
@@ -104,7 +123,9 @@ inbox_has_files() {
 }
 
 llm_gguf_setting() {
-  grep -E '^[[:space:]]*llm_gguf:' "$SCRIPT_DIR/projects.yaml" 2>/dev/null | head -1 \
+  local cfg
+  cfg="$(config_file)"
+  grep -E '^[[:space:]]*llm_gguf:' "$cfg" 2>/dev/null | head -1 \
     | sed -E 's/.*:[[:space:]]*"?([^"#]+)"?.*/\1/' | tr -d '"' | xargs || true
 }
 
@@ -113,6 +134,8 @@ resolve_llm_model_path() {
   [[ -n "$rel" ]] || return 1
   if [[ "$rel" == /* ]]; then
     echo "$rel"
+  elif [[ -f "$(config_file)" ]]; then
+    echo "$(dirname "$(config_file)")/$rel"
   else
     echo "$SCRIPT_DIR/$rel"
   fi
@@ -154,7 +177,7 @@ if ! inbox_has_files; then
   exit 1
 fi
 
-INVENTORY_NAME="$(grep -E '^[[:space:]]*inventory_excel:' projects.yaml 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*"?([^"#]+)"?.*/\1/' | tr -d '"' | xargs || true)"
+INVENTORY_NAME="$(grep -E '^[[:space:]]*inventory_excel:' "$(config_file)" 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*"?([^"#]+)"?.*/\1/' | tr -d '"' | xargs || true)"
 
 if [[ -n "$INVENTORY_NAME" ]]; then
   if ! find "$SCRIPT_DIR/待整理" "$SCRIPT_DIR/项目清单" -name "$INVENTORY_NAME" -print -quit 2>/dev/null | grep -q .; then
@@ -167,8 +190,9 @@ echo "==> filekind 整理"
 echo "    工作目录: $SCRIPT_DIR"
 echo "    待整理 → 已整理"
 echo "    项目清单: 自动识别或运行中选择"
-echo "    使用说明: $SCRIPT_DIR/使用说明.txt"
+echo "    配置文件: $(config_file)"
 describe_engine "$FILEKIND"
+echo "    使用说明: $SCRIPT_DIR/使用说明.txt"
 echo ""
 
 "$FILEKIND" run --apply --no-dry-run --confirm --open-dest

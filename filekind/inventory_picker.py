@@ -9,12 +9,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
-from filekind.config import InventoryNotFoundError, resolve_inventory_path
+from filekind.config import InventoryNotFoundError, paths_base_dir, resolve_inventory_path, state_dir
 from filekind.inventory import InventoryError, load_projects_from_inventory, looks_like_inventory_workbook
 from filekind.models import AppConfig
 
 INVENTORY_DIR_NAME = "项目清单"
-STATE_DIR_NAME = ".filekind"
 LAST_INVENTORY_FILE = "last_inventory.txt"
 
 MessageFn = Callable[[str], None]
@@ -42,11 +41,12 @@ def try_count_inventory_projects(path: Path) -> int | None:
 
 
 def inventory_search_roots(config_path: Path, source: Path) -> list[Path]:
-    base = config_path.resolve().parent
+    base = paths_base_dir(config_path)
     roots: list[Path] = []
     for candidate in (
         base / INVENTORY_DIR_NAME,
         source.resolve(),
+        config_path.resolve().parent,
         base,
     ):
         if candidate.is_dir() and candidate not in roots:
@@ -88,7 +88,7 @@ def discover_inventory_candidates(
 
 
 def state_dir_for(config_path: Path) -> Path:
-    return config_path.resolve().parent / STATE_DIR_NAME
+    return state_dir(config_path)
 
 
 def load_last_inventory(config_path: Path) -> Path | None:

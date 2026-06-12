@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist" / "filekind"
+SYSTEM = DIST / "_系统"
 LLM_FILENAME = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
 
 
@@ -56,7 +57,7 @@ def _fix_macos_scipy_dylib_conflicts() -> None:
 
 def _link_llm_model() -> None:
     src = ROOT / "models" / LLM_FILENAME
-    dst_dir = DIST / "models"
+    dst_dir = SYSTEM / "models"
     dst = dst_dir / LLM_FILENAME
 
     if not src.is_file():
@@ -65,7 +66,7 @@ def _link_llm_model() -> None:
         else:
             print(
                 "LLM: run scripts/download_llm_model.py, then re-run build "
-                "(or copy GGUF into dist/filekind/models/)"
+                "(or copy GGUF into dist/filekind/_系统/models/)"
             )
         return
 
@@ -86,6 +87,22 @@ def _link_llm_model() -> None:
         print(f"Could not symlink model; copy manually to {dst}")
 
 
+def _stage_system_files() -> None:
+    SYSTEM.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "projects.example.yaml",
+        "classify_prompts.example.yaml",
+        "classify_prompts.example.txt",
+    ):
+        src = ROOT / name
+        dst = SYSTEM / name
+        shutil.copy2(src, dst)
+        if name.endswith(".example.yaml"):
+            shutil.copy2(src, SYSTEM / name.replace(".example", ""))
+        elif name.endswith(".example.txt"):
+            shutil.copy2(src, SYSTEM / name.replace(".example", ""))
+
+
 def main() -> int:
     if sys.platform == "win32":
         binary = DIST / "filekind.exe"
@@ -97,21 +114,12 @@ def main() -> int:
         return 1
 
     DIST.mkdir(parents=True, exist_ok=True)
-    for name in (
-        "projects.example.yaml",
-        "classify_prompts.example.yaml",
-        "classify_prompts.example.txt",
-        "使用说明.txt",
-    ):
-        src = ROOT / name
-        dst = DIST / name
-        shutil.copy2(src, dst)
-        if name.endswith(".example.yaml"):
-            shutil.copy2(src, DIST / name.replace(".example", ""))
-        elif name.endswith(".example.txt"):
-            shutil.copy2(src, DIST / name.replace(".example", ""))
-        elif name == "使用说明.txt":
-            shutil.copy2(src, DIST / name)
+
+    usage_src = ROOT / "使用说明.txt"
+    if usage_src.is_file():
+        shutil.copy2(usage_src, DIST / "使用说明.txt")
+
+    _stage_system_files()
 
     for folder in ("待整理", "已整理", "项目清单"):
         (DIST / folder).mkdir(parents=True, exist_ok=True)
@@ -131,6 +139,8 @@ def main() -> int:
             shutil.copy2(launcher, DIST / launcher.name)
 
     print(f"Bundle ready: {DIST}")
+    print(f"  Clerk area: 待整理/, 已整理/, 项目清单/")
+    print(f"  System area: {SYSTEM}/")
     print(f"Binary: {binary}")
     return 0
 

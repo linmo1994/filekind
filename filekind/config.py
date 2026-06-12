@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -19,6 +20,19 @@ from filekind.models import (
 
 DEFAULT_CONFIG_NAME = "projects.yaml"
 EXAMPLE_CONFIG_NAME = "projects.example.yaml"
+SYSTEM_DIR_NAME = "_系统"
+STATE_DIR_NAME = ".state"
+LEGACY_STATE_DIR_NAME = ".filekind"
+WORK_SUBDIR_NAME = "filekind-work"
+
+_LEGACY_CONFIG_FILES = (
+    DEFAULT_CONFIG_NAME,
+    EXAMPLE_CONFIG_NAME,
+    "classify_prompts.txt",
+    "classify_prompts.example.txt",
+    "classify_prompts.yaml",
+    "classify_prompts.example.yaml",
+)
 
 
 def _runtime_from_dict(data: dict | None) -> RuntimeConfig:
@@ -68,7 +82,7 @@ def resolve_run_paths(
     create_dest: bool = True,
     create_relative_source: bool = True,
 ) -> tuple[Path, Path]:
-    base_dir = config_path.resolve().parent
+    base_dir = paths_base_dir(config_path)
     src = (
         resolve_path(source)
         if source is not None
@@ -140,6 +154,8 @@ def resolve_inventory_path(
                 source / setting.name,
                 config_path.parent / setting,
                 config_path.parent / setting.name,
+                app_root() / setting,
+                app_root() / setting.name,
                 Path.cwd() / setting,
             ]
         )
@@ -189,12 +205,127 @@ def bundle_root() -> Path | None:
     return Path(sys.executable).resolve().parent
 
 
-def default_config_search_paths() -> list[Path]:
+def app_root() -> Path:
+    """Clerk-facing tool root: exe directory when packaged, else cwd."""
     root = bundle_root()
     if root is not None:
-        # Packaged binary: prefer config beside the executable over cwd.
-        return [root / DEFAULT_CONFIG_NAME, Path.cwd() / DEFAULT_CONFIG_NAME]
-    return [Path.cwd() / DEFAULT_CONFIG_NAME]
+        return root
+    return Path.cwd()
+
+
+def uses_system_layout() -> bool:
+    """Packaged bundles use clerk root + _系统/ for configs and runtime data."""
+    return bundle_root() is not None
+
+
+def system_dir(root: Path | None = None) -> Path:
+    root = (root or app_root()).resolve()
+    if uses_system_layout():
+        return root / SYSTEM_DIR_NAME
+    return root
+
+
+def paths_base_dir(config_path: Path) -> Path:
+    """Resolve paths.source/dest relative to clerk root when using system layout."""
+    if uses_system_layout():
+        return app_root()
+    if config_path.resolve().parent.name == SYSTEM_DIR_NAME:
+        return config_path.resolve().parent.parent
+    return config_path.resolve().parent
+
+
+def state_dir(config_path: Path) -> Path:
+    if uses_system_layout():
+        return system_dir() / STATE_DIR_NAME
+    legacy = config_path.resolve().parent / LEGACY_STATE_DIR_NAME
+    if legacy.is_dir():
+        return legacy
+    return config_path.resolve().parent / STATE_DIR_NAME
+
+
+def default_work_dir(config_path: Path, run_id: str) -> Path:
+    if uses_system_layout():
+        return system_dir() / WORK_SUBDIR_NAME / run_id
+    return Path.cwd() / WORK_SUBDIR_NAME / run_id
+
+
+def _move_path(src: Path, dst: Path) -> None:
+    if not src.exists():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        return
+    shutil.move(str(src), str(dst))
+
+
+def migrate_legacy_bundle_layout(root: Path | None = None) -> None:
+    """Move legacy root-level system files into _系统/ for packaged bundles."""
+    if not uses_system_layout():
+        return
+    root = (root or app_root()).resolve()
+    target = root / SYSTEM_DIR_NAME
+    target.mkdir(parents=True, exist_ok=True)
+
+    for name in _LEGACY_CONFIG_FILES:
+        _move_path(root / name, target / name)
+
+    _move_path(root / "models", target / "models")
+    _move_path(root / LEGACY_STATE_DIR_NAME, target / STATE_DIR_NAME)
+    if (root / STATE_DIR_NAME).is_dir() and not (target / STATE_DIR_NAME).exists():
+        _move_path(root / STATE_DIR_NAME, target / STATE_DIR_NAME)
+    _move_path(root / WORK_SUBDIR_NAME, target / WORK_SUBDIR_NAME)
+
+
+def _config_search_candidates() -> list[Path]:
+    """Ordered locations for projects.yaml (deduped, preserves order)."""
+    root = bundle_root()
+    candidates: list[Path] = []
+
+    if root is not None:
+        migrate_legacy_bundle_layout(root)
+        candidates.extend(
+            [
+                root / SYSTEM_DIR_NAME / DEFAULT_CONFIG_NAME,
+                root / DEFAULT_CONFIG_NAME,
+            ]
+        )
+
+    cwd = Path.cwd()
+    candidates.extend(
+        [
+            cwd / SYSTEM_DIR_NAME / DEFAULT_CONFIG_NAME,
+            cwd / DEFAULT_CONFIG_NAME,
+        ]
+    )
+
+    if root is not None:
+        candidates.append(cwd / DEFAULT_CONFIG_NAME)
+
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        ordered.append(path)
+    return ordered
+
+
+def _bootstrap_config_from_example(target: Path) -> bool:
+    """Create projects.yaml from projects.example.yaml beside it when missing."""
+    if target.is_file():
+        return False
+    example = target.parent / EXAMPLE_CONFIG_NAME
+    if not example.is_file():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(example, target)
+    return True
+
+
+def default_config_search_paths() -> list[Path]:
+    return _config_search_candidates()
 
 
 def resolve_config_path(explicit: Optional[Path] = None) -> Path:
@@ -207,6 +338,10 @@ def resolve_config_path(explicit: Optional[Path] = None) -> Path:
 
     for candidate in default_config_search_paths():
         if candidate.is_file():
+            return candidate.resolve()
+
+    for candidate in default_config_search_paths():
+        if _bootstrap_config_from_example(candidate):
             return candidate.resolve()
 
     raise ConfigNotFoundError(None, [p.resolve() for p in default_config_search_paths()])
@@ -230,10 +365,16 @@ def config_not_found_hint(exc: ConfigNotFoundError) -> str:
 
     example_sources: list[Path] = [
         Path.cwd() / EXAMPLE_CONFIG_NAME,
+        system_dir() / EXAMPLE_CONFIG_NAME,
     ]
     root = bundle_root()
     if root is not None:
-        example_sources.append(root / EXAMPLE_CONFIG_NAME)
+        example_sources.extend(
+            [
+                root / SYSTEM_DIR_NAME / EXAMPLE_CONFIG_NAME,
+                root / EXAMPLE_CONFIG_NAME,
+            ]
+        )
 
     for example in example_sources:
         if example.is_file():
