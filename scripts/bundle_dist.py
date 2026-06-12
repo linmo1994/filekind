@@ -117,6 +117,12 @@ def _stage_launchers() -> None:
         bat_dst.write_bytes(_normalize_windows_bat(bat_src.read_text(encoding="utf-8")))
         print(f"Launcher: {bat_dst}")
 
+    debug_bat = ROOT / "scripts" / "run-filekind-debug.bat"
+    if debug_bat.is_file():
+        debug_dst = DIST / debug_bat.name
+        debug_dst.write_bytes(_normalize_windows_bat(debug_bat.read_text(encoding="utf-8")))
+        print(f"Debug launcher: {debug_dst}")
+
     if sys.platform == "darwin":
         launcher = ROOT / "scripts" / "双击可整理文件.command"
         if launcher.is_file():

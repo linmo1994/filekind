@@ -192,22 +192,7 @@ def native_pick_inventory_file(*, start_dir: Path) -> Path | None:
     if sys.platform == "win32":
         return _native_pick_inventory_windows(start)
 
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        picked = filedialog.askopenfilename(
-            title="请选择项目清单 Excel",
-            initialdir=str(start),
-            filetypes=[("Excel 工作簿", "*.xlsx *.xlsm"), ("所有文件", "*.*")],
-        )
-        root.destroy()
-        return Path(picked).resolve() if picked else None
-    except Exception:
-        return None
+    return None
 
 
 def _native_pick_inventory_windows(start: Path) -> Path | None:

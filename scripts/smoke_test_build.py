@@ -58,6 +58,36 @@ def _assert_config_found(output: str, config_path: Path) -> None:
         raise AssertionError(f"expected config path in output:\n{output}")
 
 
+def _assert_windows_bundle_integrity(dist: Path) -> None:
+    """Windows crashes at startup if _tkinter is bundled without Tcl/Tk data."""
+    internal = dist / "_internal"
+    if not internal.is_dir():
+        raise AssertionError(f"missing _internal directory: {internal}")
+
+    tcl_data = internal / "_tcl_data"
+    tk_binaries = sorted(
+        path
+        for path in internal.iterdir()
+        if path.is_file() and "_tkinter" in path.name.lower()
+    )
+    if tk_binaries and not tcl_data.is_dir():
+        names = ", ".join(p.name for p in tk_binaries)
+        raise AssertionError(
+            "Windows bundle includes _tkinter without _tcl_data; "
+            f"startup will fail with pyi_rth__tkinter: {names}"
+        )
+
+    bat = dist / "run-filekind.bat"
+    if bat.is_file():
+        raw = bat.read_bytes()
+        if not raw.startswith(b"\xef\xbb\xbf"):
+            raise AssertionError(
+                "run-filekind.bat must start with UTF-8 BOM for cmd.exe on Chinese Windows"
+            )
+        if b"\n" in raw and b"\r\n" not in raw:
+            raise AssertionError("run-filekind.bat must use CRLF line endings")
+
+
 def main() -> int:
     _configure_stdio()
     platform = (sys.argv[1] if len(sys.argv) > 1 else sys.platform).lower()
@@ -91,6 +121,10 @@ def main() -> int:
         return result.returncode
 
     print(f"OK: {exe.name} --help exited 0 ({len(output)} chars)")
+
+    if platform in ("windows", "win32"):
+        _assert_windows_bundle_integrity(DIST)
+        print("OK: Windows bundle has no orphan _tkinter and bat encoding looks valid")
 
     default_probe = _run([str(exe.resolve()), "validate-config"], cwd=cwd, env=env)
     default_output = (default_probe.stdout or "") + (default_probe.stderr or "")
