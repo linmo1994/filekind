@@ -86,6 +86,12 @@ def _assert_windows_bundle_integrity(dist: Path) -> None:
             )
         if b"\n" in raw and b"\r\n" not in raw:
             raise AssertionError("run-filekind.bat must use CRLF line endings")
+        text = raw.decode("utf-8-sig")
+        if '_internal\\"' in text:
+            raise AssertionError(
+                'run-filekind.bat must not use trailing backslash before quote in IF EXIST '
+                '(use "_internal" not "_internal\\")'
+            )
 
 
 def main() -> int:

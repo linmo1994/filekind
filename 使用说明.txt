@@ -137,8 +137,10 @@
 【Windows 用户】
 
   1. 解压整个 filekind 文件夹（须含 filekind.exe 与 _internal 目录）
-  2. 双击 run-filekind.bat（与 Mac 上双击 .command 相同）
-  3. 步骤：待整理 → 选清单 → 预览确认 → 自动打开已整理
+  2. 将待整理文件放入「待整理\」文件夹
+  3. 双击「run-filekind.bat」开始整理（推荐）
+     · 也可双击 filekind.exe（会自动执行整理；完成后按 Enter 关闭窗口）
+  4. 步骤：待整理 → 选清单 → 预览确认 → 自动打开已整理
 
   若双击 bat 窗口一闪就关：
   · 请确认已「解压整个文件夹」，不是直接在 zip 里双击

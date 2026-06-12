@@ -15,7 +15,7 @@ if not exist "filekind.exe" (
   goto :pause_exit
 )
 
-if not exist "_internal\" (
+if not exist "_internal" (
   echo [ERROR] _internal folder missing>>"%LOG%"
   echo 未找到 _internal 目录。请解压整个 filekind 文件夹，不要只复制 exe。
   set EXITCODE=1
@@ -63,7 +63,8 @@ echo.
 echo     提示: 首次整理需联网下载约 100MB 语义模型，详见使用说明「Windows 首次联网说明」
 echo.
 
-filekind.exe run --apply --no-dry-run --confirm --open-dest >>"%LOG%" 2>&1
+set "FILEKIND_FROM_BAT=1"
+call filekind.exe run --apply --no-dry-run --confirm --open-dest >>"%LOG%" 2>&1
 set EXITCODE=%ERRORLEVEL%
 if not "%EXITCODE%"=="0" (
   echo.
