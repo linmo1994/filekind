@@ -7,7 +7,7 @@ from filekind.models import FileRecord, RuntimeConfig
 
 
 def extract_image(record: FileRecord, runtime: RuntimeConfig) -> FileRecord:
-    text = ocr_image_file(Path(record.path))
+    text = ocr_image_file(Path(record.path), label=record.filename)
     record.raw_snippet = (text or "")[: runtime.text_fallback_chars]
     record.pages_extracted = 1
     record.extract_method = "ocr" if text else "metadata_only"

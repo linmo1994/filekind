@@ -24,6 +24,7 @@ from filekind.inventory_picker import discover_inventory_candidates, resolve_inv
 from filekind.pipeline import run_pipeline
 from filekind.scan.scanner import EmptyInboxError
 from filekind.plan.planner import classified_project_count, load_plan, summarize_moves
+from filekind.run_summary import print_run_summary
 from filekind.extract.ocr import ocr_status_message
 from filekind.prompts import load_classify_prompts, resolve_classify_prompts_path
 
@@ -133,37 +134,8 @@ def _print_extract_summary(
                 typer.echo(f"  完整清单: {report}")
 
 
-def _print_project_stats(plan_meta: dict, *, title: str = "最终汇总") -> None:
-    stats = plan_meta.get("project_stats") or []
-    if not stats:
-        return
-
-    classified_projects = int(plan_meta.get("classified_project_count") or 0)
-    unclassified_files = int(plan_meta.get("unclassified_file_count") or 0)
-    total_files = int(plan_meta.get("file_count") or 0)
-    classified_files = sum(
-        int(row["file_count"])
-        for row in stats
-        if row.get("project_id") != "unclassified"
-    )
-    if not total_files:
-        total_files = classified_files + unclassified_files
-
-    typer.echo("")
-    typer.echo(title)
-    typer.echo(f"  共分出 {classified_projects} 个项目（不含「未分类」）")
-    typer.echo(f"  共处理 {total_files} 个文件：已归入项目 {classified_files} 个，未分类 {unclassified_files} 个")
-    project_rows = [row for row in stats if row.get("project_id") != "unclassified"]
-    if project_rows:
-        typer.echo("  各项目文件数:")
-        for row in project_rows:
-            typer.echo(f"    - {row['project_name']}: {row['file_count']}")
-    unclassified_row = next(
-        (row for row in stats if row.get("project_id") == "unclassified"),
-        None,
-    )
-    if unclassified_row and int(unclassified_row["file_count"]) > 0:
-        typer.echo(f"    - 未分类: {unclassified_row['file_count']}")
+def _print_final_summary(plan_meta: dict) -> None:
+    print_run_summary(plan_meta, echo=typer.echo, title="整理汇总")
 
 
 @app.command("run")
@@ -292,8 +264,7 @@ def run_cmd(
     if clerk_txt.is_file():
         typer.echo(f"整理结果报告: {clerk_txt}")
 
-    _print_project_stats(_ensure_plan_meta_with_stats(plan_meta))
-
+    copied = False
     if apply and confirm:
         should_copy = yes or _confirm_copy(assume_yes=False)
         if not should_copy:
@@ -307,6 +278,7 @@ def run_cmd(
             moves, _ = load_plan(plan_path)
             manifest_path = plan_path.parent / "manifest.json"
             apply_result = apply_plan(moves, manifest_path=manifest_path, dry_run=False)
+            copied = True
         except ApplyError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
@@ -320,8 +292,12 @@ def run_cmd(
                 typer.echo(f"  - {line}", err=True)
             if len(apply_result.skipped) > 10:
                 typer.echo(f"  … 另有 {len(apply_result.skipped) - 10} 个", err=True)
+        copied = True
         if open_dest:
             _open_in_file_manager(dest_path)
+
+    if copied or not apply:
+        _print_final_summary(_ensure_plan_meta_with_stats(plan_meta))
 
 
 @app.command("apply")
@@ -357,8 +333,7 @@ def apply_cmd(
             typer.echo(f"跳过 {len(result.skipped)} 个:", err=True)
             for line in result.skipped[:10]:
                 typer.echo(f"  - {line}", err=True)
-
-    _print_project_stats(_ensure_plan_meta_with_stats(meta, moves))
+        _print_final_summary(_ensure_plan_meta_with_stats(meta, moves))
 
 
 @app.command("rollback")
@@ -399,7 +374,7 @@ def summary_cmd(
     else:
         moves, meta = load_plan(path)
         meta = _ensure_plan_meta_with_stats(meta, moves)
-    _print_project_stats(meta, title="分类统计")
+    _print_final_summary(meta)
 
 
 @app.command("validate-config")

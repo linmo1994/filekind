@@ -1,13 +1,30 @@
 from __future__ import annotations
 
-import multiprocessing as mp
 import os
 import sys
 import tempfile
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 
 _ocr_init_error: str | None = None
 _OCR_TIMEOUT_SEC = int(os.environ.get("FILEKIND_OCR_TIMEOUT", "90"))
+_ocr_progress: Callable[[str], None] | None = None
+_paddle_lock = threading.Lock()
+_paddle_engine: object | None = None
+
+ProgressFn = Callable[[str], None]
+
+
+def set_ocr_progress_callback(callback: ProgressFn | None) -> None:
+    global _ocr_progress
+    _ocr_progress = callback
+
+
+def _say(message: str) -> None:
+    if _ocr_progress is not None:
+        _ocr_progress(message)
 
 
 def ocr_importable() -> bool:
@@ -80,56 +97,67 @@ def _ocr_with_vision(image_path: str) -> str:
     return "\n".join(lines)
 
 
-def _paddle_worker(image_path: str, out_queue: mp.Queue) -> None:
-    try:
+def _get_paddle_engine() -> object:
+    global _paddle_engine
+    with _paddle_lock:
+        if _paddle_engine is not None:
+            return _paddle_engine
+        _say("  正在加载 OCR 模型（首次约 1～3 分钟，请稍候）…")
         _configure_paddle_runtime()
         from paddleocr import PaddleOCR
 
-        engine = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False, use_gpu=False)
-        result = engine.ocr(image_path, cls=True)
-    except Exception:
-        out_queue.put("")
-        return
+        _paddle_engine = PaddleOCR(
+            use_angle_cls=True,
+            lang="ch",
+            show_log=False,
+            use_gpu=False,
+        )
+        _say("  OCR 就绪，正在识别扫描页…")
+        return _paddle_engine
 
+
+def _run_paddle_ocr(engine: object, image_path: str) -> str:
+    result = engine.ocr(image_path, cls=True)
     if not result or not result[0]:
-        out_queue.put("")
-        return
-
+        return ""
     lines: list[str] = []
     for line in result[0]:
         if line and len(line) >= 2 and line[1] and line[1][0]:
             lines.append(str(line[1][0]))
-    out_queue.put("\n".join(lines))
+    return "\n".join(lines)
 
 
-def _ocr_with_paddle(image_path: str) -> str:
-    ctx = mp.get_context("spawn")
-    out_queue: mp.Queue = ctx.Queue(maxsize=1)
-    proc = ctx.Process(target=_paddle_worker, args=(image_path, out_queue))
-    proc.start()
-    proc.join(_OCR_TIMEOUT_SEC)
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(5)
-        return ""
-    if out_queue.empty():
-        return ""
-    return out_queue.get_nowait() or ""
+def _ocr_with_paddle(image_path: str, *, label: str | None = None) -> str:
+    if label:
+        _say(f"  正在 OCR：{label}")
+    engine = _get_paddle_engine()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_run_paddle_ocr, engine, image_path)
+        try:
+            return future.result(timeout=_OCR_TIMEOUT_SEC)
+        except FuturesTimeoutError:
+            _say(
+                f"  OCR 超时（{_OCR_TIMEOUT_SEC} 秒），已跳过"
+                f"{f'：{label}' if label else ''}"
+            )
+            return ""
 
 
 def release_ocr() -> None:
-    return
+    global _paddle_engine
+    with _paddle_lock:
+        _paddle_engine = None
 
 
-def ocr_image_file(path: Path) -> str:
+def ocr_image_file(path: Path, *, label: str | None = None) -> str:
     try:
         data = path.read_bytes()
     except OSError:
         return ""
-    return ocr_image_bytes(data)
+    return ocr_image_bytes(data, label=label or path.name)
 
 
-def ocr_image_bytes(image_bytes: bytes) -> str:
+def ocr_image_bytes(image_bytes: bytes, *, label: str | None = None) -> str:
     backend = _resolve_backend()
     if backend is None:
         return ""
@@ -141,8 +169,10 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
 
     try:
         if backend == "vision":
+            if label:
+                _say(f"  正在 OCR：{label}")
             return _ocr_with_vision(image_path)
-        return _ocr_with_paddle(image_path)
+        return _ocr_with_paddle(image_path, label=label)
     except Exception:
         return ""
     finally:

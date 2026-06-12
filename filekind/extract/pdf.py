@@ -127,7 +127,8 @@ def extract_pdf(record: FileRecord, runtime: RuntimeConfig) -> FileRecord:
                 continue
 
             pages_rendered += 1
-            ocr_text = ocr_image_bytes(png)
+            page_label = f"{record.filename} 第{i + 1}页"
+            ocr_text = ocr_image_bytes(png, label=page_label)
             if ocr_text:
                 pages_ocrd += 1
                 parts.append(ocr_text)

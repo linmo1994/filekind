@@ -7,6 +7,7 @@ from pathlib import Path
 
 from filekind.models import FileRecord
 from filekind.plan.planner import summarize_projects
+from filekind.run_summary import format_run_summary_lines
 
 REPORT_TXT_NAME = "整理结果.txt"
 REPORT_XLSX_NAME = "整理结果.xlsx"
@@ -30,6 +31,7 @@ def write_clerk_reports(
     dest_root: Path,
     inventory_path: Path | None,
     inventory_project_count: int,
+    summary_meta: dict | None = None,
     also_write_beside_dest: bool = True,
 ) -> tuple[Path, Path | None]:
     """Write 整理结果.txt and 整理结果.xlsx under work_dir; optionally copy beside dest."""
@@ -50,11 +52,18 @@ def write_clerk_reports(
         "filekind 整理结果",
         f"生成时间: {stamp}",
         "",
-        f"共处理 {len(records)} 个文件",
-        f"已归入项目: {classified} 个",
-        f"未分类: {unclassified} 个",
-        f"分出项目数: {len(project_rows)}",
     ]
+    if summary_meta:
+        lines.extend(format_run_summary_lines(summary_meta, title="整理汇总"))
+        lines.append("")
+    lines.extend(
+        [
+            f"共处理 {len(records)} 个文件",
+            f"已归入项目: {classified} 个",
+            f"未分类: {unclassified} 个",
+            f"分出项目数: {len(project_rows)}",
+        ]
+    )
     if inventory_path is not None:
         lines.append(
             f"项目清单: {inventory_path.name}（共 {inventory_project_count} 个项目）"

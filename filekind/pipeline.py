@@ -10,11 +10,16 @@ from filekind.classify import classify_records
 from filekind.config import load_config
 from filekind.inventory_picker import resolve_inventory_for_run
 from filekind.extract import extract_text
-from filekind.extract.ocr import ocr_status_message, release_ocr
+from filekind.extract.ocr import (
+    ocr_status_message,
+    release_ocr,
+    set_ocr_progress_callback,
+)
 from filekind.inventory import InventoryError, load_projects_from_inventory
 from filekind.models import AppConfig, FileRecord
 from filekind.plan.planner import build_plan, summarize_projects, write_files_jsonl, write_plan
 from filekind.clerk_report import write_clerk_reports
+from filekind.run_summary import inventory_projects_payload
 from filekind.scan.scanner import EmptyInboxError, scan_directory
 
 ProgressFn = Callable[[str], None]
@@ -116,11 +121,15 @@ def run_pipeline(
 
     say("提取正文（每文件前 3 页）…")
     say(f"  {ocr_status_message()}")
-    for index, record in enumerate(records):
-        records[index] = extract_text(record, config.runtime)
-        done = index + 1
-        if done == total or done % 10 == 0:
-            say(f"  提取进度 {done}/{total}")
+    set_ocr_progress_callback(say)
+    try:
+        for index, record in enumerate(records):
+            done = index + 1
+            say(f"  提取 {done}/{total}：{record.filename}")
+            records[index] = extract_text(record, config.runtime)
+    finally:
+        set_ocr_progress_callback(None)
+        release_ocr()
 
     pdf_errors = sum(1 for record in records if record.extract_method == "pdf_error")
     if pdf_errors:
@@ -128,8 +137,6 @@ def run_pipeline(
             f"  其中 {pdf_errors} 个 PDF 未能提取正文"
             "（仍会用文件名、路径与分类模型继续处理）"
         )
-
-    release_ocr()
 
     say("分类（规则 → 向量关联 → 可选 LLM）…")
     records = classify_records(
@@ -162,6 +169,16 @@ def run_pipeline(
     work.mkdir(parents=True, exist_ok=True)
 
     plan_path = work / "plan.json"
+    summary_meta = {
+        "inventory_project_count": len(inventory_projects or config.projects),
+        "inventory_projects": inventory_projects_payload(
+            inventory_projects or config.projects
+        ),
+        "file_count": len(records),
+        "classified_project_count": classified_count,
+        "unclassified_file_count": unclassified_count,
+        "project_stats": project_stats,
+    }
     write_plan(
         plan_path,
         plan,
@@ -170,12 +187,8 @@ def run_pipeline(
             "dest": str(dest.resolve()),
             "config": str(config_path.resolve()),
             "inventory_excel": str(inventory_path.resolve()) if inventory_path else None,
-            "inventory_project_count": len(inventory_projects or config.projects),
-            "file_count": len(records),
+            **summary_meta,
             "move_count": len(plan),
-            "classified_project_count": classified_count,
-            "unclassified_file_count": unclassified_count,
-            "project_stats": project_stats,
         },
     )
     summary_path = work / "summary.json"
@@ -203,6 +216,7 @@ def run_pipeline(
         dest_root=dest,
         inventory_path=inventory_path,
         inventory_project_count=len(inventory_projects or config.projects),
+        summary_meta=summary_meta,
     )
     say(f"整理结果报告: {txt_report}")
     if xlsx_report is not None:
