@@ -103,6 +103,28 @@ def _stage_system_files() -> None:
             shutil.copy2(src, SYSTEM / name.replace(".example", ""))
 
 
+def _normalize_windows_bat(text: str) -> bytes:
+    """UTF-8 BOM + CRLF so cmd.exe on Chinese Windows can parse the batch file."""
+    text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n").strip()
+    body = "\r\n".join(text.split("\n")) + "\r\n"
+    return "\ufeff".encode("utf-8") + body.encode("utf-8")
+
+
+def _stage_launchers() -> None:
+    bat_src = ROOT / "scripts" / "run-filekind.bat"
+    if bat_src.is_file():
+        bat_dst = DIST / bat_src.name
+        bat_dst.write_bytes(_normalize_windows_bat(bat_src.read_text(encoding="utf-8")))
+        print(f"Launcher: {bat_dst}")
+
+    if sys.platform == "darwin":
+        launcher = ROOT / "scripts" / "双击可整理文件.command"
+        if launcher.is_file():
+            target = DIST / launcher.name
+            shutil.copy2(launcher, target)
+            target.chmod(0o755)
+
+
 def main() -> int:
     if sys.platform == "win32":
         binary = DIST / "filekind.exe"
@@ -126,17 +148,7 @@ def main() -> int:
 
     _link_llm_model()
     _fix_macos_scipy_dylib_conflicts()
-
-    if sys.platform == "darwin":
-        launcher = ROOT / "scripts" / "双击可整理文件.command"
-        if launcher.is_file():
-            target = DIST / launcher.name
-            shutil.copy2(launcher, target)
-            target.chmod(0o755)
-    elif sys.platform == "win32":
-        launcher = ROOT / "scripts" / "run-filekind.bat"
-        if launcher.is_file():
-            shutil.copy2(launcher, DIST / launcher.name)
+    _stage_launchers()
 
     print(f"Bundle ready: {DIST}")
     print(f"  Clerk area: 待整理/, 已整理/, 项目清单/")

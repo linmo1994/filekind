@@ -140,6 +140,12 @@
   2. 双击 run-filekind.bat（与 Mac 上双击 .command 相同）
   3. 步骤：待整理 → 选清单 → 预览确认 → 自动打开已整理
 
+  若双击 bat 窗口一闪就关：
+  · 请确认已「解压整个文件夹」，不是直接在 zip 里双击
+  · 目录中须同时有 filekind.exe 与 _internal\
+  · 查看同目录下 run-filekind.log 里的报错信息
+  · 或在地址栏输入 cmd 回车，手动执行下方命令（窗口不会自动关闭）
+
   若 bat 无法运行，可在该文件夹地址栏输入 cmd 回车，再执行：
       filekind.exe run --apply --no-dry-run --confirm --open-dest
 
