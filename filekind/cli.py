@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Optional
 
 import typer
 
 from filekind.apply.executor import ApplyError, apply_plan, rollback
+from filekind.clerk_report import REPORT_TXT_NAME
 from filekind.config import (
     ConfigNotFoundError,
     InventoryNotFoundError,
@@ -18,8 +20,11 @@ from filekind.config import (
     resolve_run_paths,
 )
 from filekind.inventory import InventoryError, load_projects_from_inventory
+from filekind.inventory_picker import discover_inventory_candidates, resolve_inventory_for_run
 from filekind.pipeline import run_pipeline
+from filekind.scan.scanner import EmptyInboxError
 from filekind.plan.planner import classified_project_count, load_plan, summarize_moves
+from filekind.extract.ocr import ocr_status_message
 from filekind.prompts import load_classify_prompts, resolve_classify_prompts_path
 
 app = typer.Typer(
@@ -27,6 +32,31 @@ app = typer.Typer(
     help="按软件/系统项目整理本地文件（规则 + 向量关联 + 可选本地 LLM）",
     no_args_is_help=True,
 )
+
+
+def _open_in_file_manager(path: Path) -> None:
+    import subprocess
+    import sys
+
+    target = path.resolve()
+    if not target.exists():
+        return
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(target)], check=False)
+    elif sys.platform == "win32":
+        subprocess.run(["explorer", str(target)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(target)], check=False)
+
+
+def _confirm_copy(*, assume_yes: bool) -> bool:
+    if assume_yes:
+        return True
+    try:
+        answer = typer.confirm("是否复制到已整理目录？", default=True)
+    except typer.Abort:
+        return False
+    return bool(answer)
 
 
 def _resolve_projects(projects: Optional[Path]) -> Path:
@@ -64,30 +94,76 @@ def _ensure_plan_meta_with_stats(
     }
 
 
-def _print_project_stats(plan_meta: dict, *, title: str = "最终分类结果") -> None:
+def _relative_to_source(path: str | Path, source: Path) -> str:
+    try:
+        return str(Path(path).resolve().relative_to(source.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _print_extract_summary(
+    records: list,
+    source_path: Path,
+    *,
+    work_dir: Path | None = None,
+) -> None:
+    pdf_records = [r for r in records if (r.extension or "").lower() == ".pdf"]
+    pdf_errors = [r for r in records if r.extract_method == "pdf_error"]
+    if not pdf_records and not pdf_errors:
+        return
+
+    typer.echo("")
+    typer.echo("提取摘要")
+    if pdf_records:
+        typer.echo(f"  PDF 总数: {len(pdf_records)}")
+    if pdf_errors:
+        typer.echo(
+            f"  无法提取正文: {len(pdf_errors)} 个"
+            "（仍会按文件名、路径与分类模型处理，整理照常进行）"
+        )
+        for item in pdf_errors[:10]:
+            rel = _relative_to_source(item.path, source_path)
+            reason = item.extract_reason or item.reason or "PDF 无法提取正文"
+            typer.echo(f"    - {rel}  ({reason})")
+        if len(pdf_errors) > 10:
+            typer.echo(f"    … 另有 {len(pdf_errors) - 10} 个")
+        if work_dir is not None:
+            report = work_dir / "pdf_extract_issues.json"
+            if report.is_file():
+                typer.echo(f"  完整清单: {report}")
+
+
+def _print_project_stats(plan_meta: dict, *, title: str = "最终汇总") -> None:
     stats = plan_meta.get("project_stats") or []
     if not stats:
         return
 
-    classified = int(plan_meta.get("classified_project_count") or 0)
+    classified_projects = int(plan_meta.get("classified_project_count") or 0)
     unclassified_files = int(plan_meta.get("unclassified_file_count") or 0)
+    total_files = int(plan_meta.get("file_count") or 0)
     classified_files = sum(
         int(row["file_count"])
         for row in stats
         if row.get("project_id") != "unclassified"
     )
+    if not total_files:
+        total_files = classified_files + unclassified_files
 
     typer.echo("")
     typer.echo(title)
-    typer.echo(f"  已分类项目数: {classified}")
-    typer.echo(f"  已分类文件数: {classified_files}")
-    typer.echo(f"  未分类文件数: {unclassified_files}")
-    if classified:
+    typer.echo(f"  共分出 {classified_projects} 个项目（不含「未分类」）")
+    typer.echo(f"  共处理 {total_files} 个文件：已归入项目 {classified_files} 个，未分类 {unclassified_files} 个")
+    project_rows = [row for row in stats if row.get("project_id") != "unclassified"]
+    if project_rows:
         typer.echo("  各项目文件数:")
-        for row in stats:
-            if row.get("project_id") == "unclassified":
-                continue
+        for row in project_rows:
             typer.echo(f"    - {row['project_name']}: {row['file_count']}")
+    unclassified_row = next(
+        (row for row in stats if row.get("project_id") == "unclassified"),
+        None,
+    )
+    if unclassified_row and int(unclassified_row["file_count"]) > 0:
+        typer.echo(f"    - 未分类: {unclassified_row['file_count']}")
 
 
 @app.command("run")
@@ -125,7 +201,28 @@ def run_cmd(
         None,
         "--inventory",
         "-i",
-        help="项目清单 Excel（默认 projects.yaml → paths.inventory_excel）",
+        help="项目清单 Excel（默认自动识别或交互选择）",
+    ),
+    pick_inventory: Optional[bool] = typer.Option(
+        None,
+        "--pick-inventory/--no-pick-inventory",
+        help="自动识别/选择项目清单 Excel（默认在终端交互时开启）",
+    ),
+    confirm: bool = typer.Option(
+        False,
+        "--confirm",
+        help="复制前先展示整理计划并确认（推荐文员使用）",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="跳过复制确认（与 --confirm 联用时直接复制）",
+    ),
+    open_dest: bool = typer.Option(
+        False,
+        "--open-dest",
+        help="复制完成后打开已整理目录",
     ),
 ) -> None:
     """扫描 → 提取前3页 → 分类 → 生成 plan.json"""
@@ -139,18 +236,29 @@ def run_cmd(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    if apply and config.runtime.dry_run_by_default and dry_run:
+    interactive_inventory = (
+        pick_inventory if pick_inventory is not None else sys.stdin.isatty()
+    )
+    pipeline_apply = apply and not confirm
+
+    if apply and config.runtime.dry_run_by_default and dry_run and pipeline_apply:
         typer.echo("提示: 使用 --apply --no-dry-run 才会复制文件到已整理目录")
 
+    def progress(message: str) -> None:
+        typer.echo(message)
+
+    apply_result = None
     try:
         records, plan_path, apply_result = run_pipeline(
             source=source_path,
             dest=dest_path,
             config_path=config_path,
             work_dir=work_dir,
-            apply_moves=apply,
+            apply_moves=pipeline_apply,
             dry_run=dry_run,
             inventory=inventory,
+            interactive_inventory=interactive_inventory,
+            on_progress=progress,
         )
     except EmptyInboxError as exc:
         typer.echo(str(exc), err=True)
@@ -174,21 +282,35 @@ def run_cmd(
         )
     typer.echo(f"已处理 {len(records)} 个文件")
 
-    pdf_errors = [r for r in records if r.extract_method == "pdf_error"]
-    if pdf_errors:
-        typer.echo(
-            f"警告: {len(pdf_errors)} 个 PDF 无法提取正文，将主要依据文件名/路径分类:",
-            err=True,
-        )
-        for item in pdf_errors[:10]:
-            typer.echo(f"  - {item.filename}", err=True)
-        if len(pdf_errors) > 10:
-            typer.echo(f"  … 另有 {len(pdf_errors) - 10} 个", err=True)
+    _print_extract_summary(records, source_path, work_dir=plan_path.parent)
 
     typer.echo(f"计划已写入: {plan_path}")
     summary_path = plan_path.parent / "summary.json"
     if summary_path.is_file():
         typer.echo(f"统计详情已写入: {summary_path}")
+    clerk_txt = plan_path.parent / REPORT_TXT_NAME
+    if clerk_txt.is_file():
+        typer.echo(f"整理结果报告: {clerk_txt}")
+
+    _print_project_stats(_ensure_plan_meta_with_stats(plan_meta))
+
+    if apply and confirm:
+        should_copy = yes or _confirm_copy(assume_yes=False)
+        if not should_copy:
+            typer.echo("")
+            typer.echo("已取消复制。待整理原文件未改动。")
+            typer.echo(f"若确认无误，可执行: filekind apply {plan_path} --no-dry-run")
+            raise typer.Exit(code=0)
+        try:
+            from filekind.plan.planner import load_plan
+
+            moves, _ = load_plan(plan_path)
+            manifest_path = plan_path.parent / "manifest.json"
+            apply_result = apply_plan(moves, manifest_path=manifest_path, dry_run=False)
+        except ApplyError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+
     if apply and not dry_run and apply_result is not None:
         typer.echo(f"已复制 {len(apply_result.copied)} 个文件到已整理目录（待整理原文件保留）")
         typer.echo(f"复制清单: {plan_path.parent / 'manifest.json'}")
@@ -198,8 +320,8 @@ def run_cmd(
                 typer.echo(f"  - {line}", err=True)
             if len(apply_result.skipped) > 10:
                 typer.echo(f"  … 另有 {len(apply_result.skipped) - 10} 个", err=True)
-
-    _print_project_stats(_ensure_plan_meta_with_stats(plan_meta))
+        if open_dest:
+            _open_in_file_manager(dest_path)
 
 
 @app.command("apply")
@@ -304,33 +426,44 @@ def validate_config_cmd(
         typer.echo(f"提示: {exc}", err=True)
 
     inventory_setting = (config.paths.inventory_excel or "").strip()
-    if not inventory_setting:
-        typer.echo("项目清单 Excel: (未配置，请在 paths.inventory_excel 中指定)")
+
+    if src is not None:
+        typer.echo("项目清单 Excel:")
+        candidates = discover_inventory_candidates(config_path, src)
+        if candidates:
+            for path, count in candidates[:10]:
+                typer.echo(f"  - {path.name}（{count} 个项目）  {path}")
+            if len(candidates) > 10:
+                typer.echo(f"  … 另有 {len(candidates) - 10} 个候选")
+        else:
+            typer.echo("  未在 待整理/ 或 项目清单/ 中发现可用清单")
+        if inventory_setting:
+            typer.echo(f"  配置指定: {inventory_setting}")
+        try:
+            inventory_path = resolve_inventory_for_run(
+                config_path,
+                config,
+                src,
+                interactive=False,
+            )
+            project_list = load_projects_from_inventory(inventory_path)
+            typer.echo(f"  将使用: {inventory_path.name}（{len(project_list)} 个项目）")
+        except (InventoryNotFoundError, InventoryError) as exc:
+            typer.echo(f"  清单: {exc}", err=True)
     else:
-        typer.echo(f"项目清单 Excel: {inventory_setting}")
-        if src is not None:
-            try:
-                inventory_path = resolve_inventory_path(config_path, config, src)
-                project_list = load_projects_from_inventory(inventory_path)
-                typer.echo(f"清单内项目数: {len(project_list)}")
-                for project in project_list[:20]:
-                    codes = ", ".join(project.codes) if project.codes else "-"
-                    typer.echo(f"  - {project.name} ({codes})")
-                if len(project_list) > 20:
-                    typer.echo(f"  … 另有 {len(project_list) - 20} 个项目")
-            except (InventoryNotFoundError, InventoryError) as exc:
-                typer.echo(f"清单解析: {exc}", err=True)
+        typer.echo("项目清单 Excel: 请先创建待整理目录后再校验")
 
     typer.echo(f"hardware_profile: {config.hardware_profile}")
     typer.echo(f"embedding: {config.models.embedding}")
     typer.echo(f"llm_gguf: {config.models.llm_gguf or '(未配置，跳过 LLM)'}")
+    typer.echo(f"OCR: {ocr_status_message()}")
 
-    prompt_setting = (config.paths.classify_prompts or "classify_prompts.yaml").strip()
+    prompt_setting = (config.paths.classify_prompts or "classify_prompts.txt").strip()
     typer.echo(f"分类提示词: {prompt_setting}")
     prompt_path = resolve_classify_prompts_path(config_path, config)
     if prompt_path is None:
         typer.echo("  未找到提示词文件，将使用内置默认提示词")
-        typer.echo("  可复制 classify_prompts.example.yaml 为 classify_prompts.yaml 后修改")
+        typer.echo("  可复制 classify_prompts.example.txt 为 classify_prompts.txt 后修改（纯文本，无需 YAML）")
     else:
         prompts = load_classify_prompts(config_path, config)
         typer.echo(f"  已加载: {prompt_path}")

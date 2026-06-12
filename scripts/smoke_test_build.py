@@ -62,6 +62,29 @@ def main() -> int:
     output = (result.stdout or result.stderr or "").strip()
     if result.returncode == 0:
         print(f"OK: {exe.name} --help exited 0 ({len(output)} chars)")
+        ocr_probe = subprocess.run(
+            [
+                str(exe.resolve()),
+                "validate-config",
+                "-p",
+                str(Path("dist/filekind/projects.example.yaml").resolve()),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            cwd=str(Path("dist/filekind").resolve()),
+        )
+        ocr_output = (ocr_probe.stdout or "") + (ocr_probe.stderr or "")
+        if "OCR 未安装" in ocr_output:
+            print("WARN: bundled binary reports OCR unavailable", file=sys.stderr)
+            print(ocr_output[-500:], file=sys.stderr)
+            return 1
+        if "OCR" not in ocr_output and "Vision" not in ocr_output:
+            print("WARN: validate-config missing OCR status line", file=sys.stderr)
+            return 1
+        print("OK: OCR appears available in frozen binary")
         return 0
 
     _safe_write(sys.stderr, f"Smoke test failed with exit code {result.returncode}")

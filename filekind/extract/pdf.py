@@ -34,6 +34,21 @@ def _page_pixmap_png(page: fitz.Page, *, dpi: int = 150) -> bytes | None:
     return None
 
 
+def _extract_failure_reason(
+    *,
+    pages_rendered: int,
+    pages_ocr_empty: int,
+    pages_render_failed: int,
+) -> str:
+    if pages_rendered and pages_ocr_empty == pages_rendered:
+        return "扫描版 PDF，OCR 未识别出文字"
+    if pages_render_failed and not pages_rendered:
+        return "PDF 结构异常，无法渲染页面"
+    if pages_render_failed or pages_ocr_empty:
+        return "PDF 部分页面无法提取正文"
+    return "PDF 结构异常，无法提取正文"
+
+
 def _finalize_record(
     record: FileRecord,
     runtime: RuntimeConfig,
@@ -42,7 +57,9 @@ def _finalize_record(
     page_limit: int,
     pages_with_text: int,
     pages_ocrd: int,
-    pages_failed: int,
+    pages_rendered: int,
+    pages_ocr_empty: int,
+    pages_render_failed: int,
 ) -> FileRecord:
     snippet = "\n\n".join(parts)
     if len(snippet) > runtime.text_fallback_chars:
@@ -51,9 +68,13 @@ def _finalize_record(
     record.raw_snippet = snippet
     record.pages_extracted = page_limit
 
-    if pages_failed and not parts:
+    if not parts and (pages_render_failed or pages_ocr_empty):
         record.extract_method = "pdf_error"
-        record.reason = record.reason or "PDF 结构异常，无法提取正文（已跳过该页渲染）"
+        record.extract_reason = _extract_failure_reason(
+            pages_rendered=pages_rendered,
+            pages_ocr_empty=pages_ocr_empty,
+            pages_render_failed=pages_render_failed,
+        )
     elif pages_ocrd and not pages_with_text:
         record.extract_method = "ocr"
     elif pages_ocrd:
@@ -71,15 +92,17 @@ def extract_pdf(record: FileRecord, runtime: RuntimeConfig) -> FileRecord:
     parts: list[str] = []
     pages_with_text = 0
     pages_ocrd = 0
-    pages_failed = 0
+    pages_rendered = 0
+    pages_ocr_empty = 0
+    pages_render_failed = 0
 
     try:
         doc = fitz.open(path)
     except Exception:
         record.extract_method = "pdf_error"
+        record.extract_reason = "无法打开 PDF 文件"
         record.pages_extracted = 0
         record.raw_snippet = ""
-        record.reason = "无法打开 PDF 文件"
         return record
 
     page_limit = 0
@@ -89,26 +112,27 @@ def extract_pdf(record: FileRecord, runtime: RuntimeConfig) -> FileRecord:
             try:
                 page = doc.load_page(i)
             except Exception:
-                pages_failed += 1
+                pages_render_failed += 1
                 continue
 
-            page_ok = False
             text = _page_text(page)
             if text:
                 pages_with_text += 1
                 parts.append(text)
-                page_ok = True
-            else:
-                png = _page_pixmap_png(page)
-                if png:
-                    ocr_text = ocr_image_bytes(png)
-                    if ocr_text:
-                        pages_ocrd += 1
-                        parts.append(ocr_text)
-                        page_ok = True
+                continue
 
-            if not page_ok:
-                pages_failed += 1
+            png = _page_pixmap_png(page)
+            if not png:
+                pages_render_failed += 1
+                continue
+
+            pages_rendered += 1
+            ocr_text = ocr_image_bytes(png)
+            if ocr_text:
+                pages_ocrd += 1
+                parts.append(ocr_text)
+            else:
+                pages_ocr_empty += 1
     finally:
         doc.close()
 
@@ -119,5 +143,7 @@ def extract_pdf(record: FileRecord, runtime: RuntimeConfig) -> FileRecord:
         page_limit=page_limit,
         pages_with_text=pages_with_text,
         pages_ocrd=pages_ocrd,
-        pages_failed=pages_failed,
+        pages_rendered=pages_rendered,
+        pages_ocr_empty=pages_ocr_empty,
+        pages_render_failed=pages_render_failed,
     )

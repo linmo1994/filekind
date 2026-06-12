@@ -262,6 +262,10 @@ def load_config(path: Path | None = None, *, explicit: Optional[Path] = None) ->
             aliases=p.get("aliases") or [],
             codes=p.get("codes") or [],
             description=(p.get("description") or "").strip(),
+            inventory_code=(p.get("inventory_code") or "").strip(),
+            solution_name=(p.get("solution_name") or "").strip(),
+            board_type=(p.get("board_type") or "").strip(),
+            year=(p.get("year") or "").strip(),
         )
         for p in raw.get("projects") or []
     ]

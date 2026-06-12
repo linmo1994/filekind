@@ -9,6 +9,8 @@ from filekind.prompts import (
     DEFAULT_MERGED_SYSTEM,
     default_classify_prompts,
     load_classify_prompts,
+    load_classify_prompts_from_file,
+    parse_plain_text_prompts,
     resolve_classify_prompts_path,
 )
 
@@ -55,8 +57,25 @@ def test_load_classify_prompts_falls_back_to_defaults(tmp_path: Path) -> None:
 def test_resolve_classify_prompts_path_beside_config(tmp_path: Path) -> None:
     config_path = tmp_path / "projects.yaml"
     config_path.touch()
-    prompt_path = tmp_path / "classify_prompts.yaml"
-    prompt_path.write_text("merged:\n  system: ok\n  user: ok\n", encoding="utf-8")
+    prompt_path = tmp_path / "classify_prompts.txt"
+    prompt_path.write_text("=== 系统说明 ===\nok\n=== 用户模板 ===\nuser {filename}\n", encoding="utf-8")
 
     resolved = resolve_classify_prompts_path(config_path, AppConfig())
     assert resolved == prompt_path.resolve()
+
+
+def test_load_classify_prompts_from_plain_text(tmp_path: Path) -> None:
+    path = tmp_path / "prompts.txt"
+    path.write_text(
+        "=== 系统说明 ===\n自定义 system\n=== 用户模板 ===\n自定义 user {filename}\n",
+        encoding="utf-8",
+    )
+    prompts = load_classify_prompts_from_file(path)
+    assert prompts.merged_system == "自定义 system"
+    assert prompts.merged_user == "自定义 user {filename}"
+
+
+def test_parse_plain_text_single_section() -> None:
+    system, user = parse_plain_text_prompts("只有系统说明段落")
+    assert system == "只有系统说明段落"
+    assert user == ""

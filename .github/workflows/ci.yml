@@ -60,7 +60,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install build dependencies
-        run: python -m pip install --upgrade pip setuptools wheel && pip install -e ".[dev,build]"
+        run: python -m pip install --upgrade pip setuptools wheel && pip install -e ".[dev,build,llm,ocr]"
 
       - name: Build executable (PyInstaller)
         run: pyinstaller --noconfirm --clean filekind.spec

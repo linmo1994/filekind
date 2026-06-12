@@ -12,6 +12,10 @@ class ProjectDef:
     aliases: list[str] = field(default_factory=list)
     codes: list[str] = field(default_factory=list)
     description: str = ""
+    inventory_code: str = ""
+    solution_name: str = ""
+    board_type: str = ""
+    year: str = ""
 
 
 @dataclass
@@ -24,6 +28,7 @@ class RuntimeConfig:
     text_fallback_chars: int = 3000
     excel_max_rows: int = 100
     cluster_similarity_threshold: float = 0.72
+    llm_max_candidates: int = 10
     dry_run_by_default: bool = True
 
 
@@ -47,7 +52,7 @@ class PathsConfig:
     source: str = "待整理"
     dest: str = "已整理"
     inventory_excel: str = ""
-    classify_prompts: str = "classify_prompts.yaml"
+    classify_prompts: str = "classify_prompts.txt"
 
 
 @dataclass
@@ -71,11 +76,13 @@ class FileRecord:
     mtime: float
     md5: str | None = None
     extract_method: str | None = None
+    extract_reason: str = ""
     pages_extracted: int = 0
     raw_snippet: str = ""
     summary: str = ""
     detected_codes: list[str] = field(default_factory=list)
     detected_names: list[str] = field(default_factory=list)
+    platform_prefixes: list[str] = field(default_factory=list)
     project_id: str | None = None
     project_name: str | None = None
     confidence: float = 0.0

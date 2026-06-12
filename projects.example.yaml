@@ -6,10 +6,11 @@ hardware_profile: 8gb
 paths:
   source: 待整理
   dest: 已整理
-  # 项目清单 Excel（放在「待整理」或与本文件同目录；分类时读取，该文件本身不会被移动）
-  inventory_excel: "国高资料清单2026 版型清单.xlsx"
-  # LLM 分类提示词（与 projects.yaml 同目录；见 classify_prompts.example.yaml）
-  classify_prompts: classify_prompts.yaml
+  # 项目清单 Excel（可选）。留空时程序会在「待整理/」或「项目清单/」中自动识别；
+  # 若有多个清单，运行时会提示选择一个。
+  inventory_excel: ""
+  # LLM 分类提示词（纯文本，见 classify_prompts.example.txt；仅配置 llm_gguf 时生效）
+  classify_prompts: classify_prompts.txt
 
 runtime:
   load_models_sequentially: true
@@ -20,16 +21,22 @@ runtime:
   text_fallback_chars: 3000
   excel_max_rows: 100
   cluster_similarity_threshold: 0.72
+  # LLM 每次只在收窄后的候选项目中选择（规格书/发票等弱信号文件）
+  llm_max_candidates: 10
   dry_run_by_default: true
 
 code_patterns:
   - '(?i)(PROJ|SYS|PRJ)[-_]?\d{4}[-_]?\d+'
   - '(?i)[A-Z]{2,10}-\d{3,6}'
   - '(?i)\d{6}--[A-Z0-9]+'
+  # 版型规格书：202304_CV352-BA32-11 Specification.pdf
+  - '(?i)\d{6}[_-][A-Z0-9]+(?:-[A-Z0-9]+)*'
+  - '(?i)\b[A-Z]{2,10}\d{0,4}(?:-[A-Z0-9]+)+\b'
 
 models:
   embedding: BAAI/bge-small-zh-v1.5
-  llm_gguf: ""  # path to Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+  # 运行 scripts/download_llm_model.py 下载；相对 projects.yaml 所在目录
+  llm_gguf: models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
   ocr: mobile
 
 target_layout:

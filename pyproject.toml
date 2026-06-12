@@ -17,7 +17,11 @@ dependencies = [
 
 [project.optional-dependencies]
 llm = ["llama-cpp-python>=0.2.0"]
-ocr = ["paddleocr>=2.7.0", "paddlepaddle>=2.6.0"]
+ocr = [
+    "paddleocr>=2.7.0,<3.0.0",
+    "paddlepaddle>=2.6.0,<3.0.0",
+    "ocrmac>=1.0.0; sys_platform == 'darwin'",
+]
 dev = ["pytest>=8.0.0"]
 build = ["pyinstaller>=6.0.0"]
 

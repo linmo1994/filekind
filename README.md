@@ -130,7 +130,7 @@ dist/filekind/
 |------|------|
 | Embedding | `BAAI/bge-small-zh-v1.5` |
 | LLM | `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` |
-| OCR | PaddleOCR mobile（可选） |
+| OCR | macOS：系统 Vision；其他平台：PaddleOCR（可选） |
 
 ## 工作流程
 
@@ -182,8 +182,8 @@ cd dist/filekind
 
 说明：
 
-- 已打包：规则分类、Office/PDF 提取、**fastembed 向量**（首次运行仍会从网络拉取 bge 模型到 `~/.cache`，约 100MB）
-- **未打包**（体积过大/原生依赖复杂）：PaddleOCR、llama-cpp；需要 OCR/LLM 请用源码 `pip install -e ".[ocr,llm]"` 运行
+- 已打包：规则分类、Office/PDF 提取、**fastembed 向量**（首次运行仍会从网络拉取 bge 模型到 `~/.cache`，约 100MB）、**本地 LLM**（`build_executable.sh` 会安装 `.[llm]` 并打包 llama-cpp；GGUF 放在 `dist/filekind/models/`，见 `scripts/download_llm_model.py`）、**OCR**（macOS 优先用系统 Vision 识别扫描件；其他平台用 PaddleOCR，首次会下载模型到 `~/.paddleocr/`）
+- **未打包**：无（OCR/LLM 均可在打包版中使用；重新运行 `scripts/build_executable.sh` 即可）
 - 发布给客户时，可连同 `projects.example.yaml` 与 `dist/filekind/` 整个文件夹一起拷贝
 
 ## 开发
