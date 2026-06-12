@@ -15,7 +15,7 @@ python -m pip install --upgrade pip setuptools wheel -q
 pip install -e ".[dev,llm,ocr]" -q
 pip install pyinstaller -q
 
-pyinstaller --noconfirm --clean filekind.spec
+python scripts/run_pyinstaller.py
 
 python scripts/bundle_dist.py
 

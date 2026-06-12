@@ -39,6 +39,9 @@ jobs:
     name: Build (${{ matrix.platform }})
     needs: test
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
     strategy:
       fail-fast: false
       matrix:
@@ -62,8 +65,13 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install --upgrade pip setuptools wheel && pip install -e ".[dev,build,llm,ocr]"
 
+      - name: Set UTF-8 code page (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: chcp 65001 | Out-Null
+
       - name: Build executable (PyInstaller)
-        run: pyinstaller --noconfirm --clean filekind.spec
+        run: python scripts/run_pyinstaller.py
 
       - name: Prepare distribution bundle
         run: python scripts/bundle_dist.py

@@ -1,8 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec: build with `pyinstaller filekind.spec`."""
+"""PyInstaller spec: build with `python scripts/run_pyinstaller.py`."""
+
+import os
+
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 import sys
 from pathlib import Path
+
+if sys.platform == "win32":
+    for _stream in (sys.stdout, sys.stderr):
+        _reconfigure = getattr(_stream, "reconfigure", None)
+        if callable(_reconfigure):
+            try:
+                _reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
@@ -70,6 +84,8 @@ hiddenimports = (
         "skimage",
         "imgaug",
         "lmdb",
+        "apted",
+        "onnx",
     ]
 )
 
