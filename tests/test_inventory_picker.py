@@ -110,6 +110,33 @@ def test_multiple_inventories_require_interactive(tmp_path: Path) -> None:
         )
 
 
+def test_windows_picker_uses_powershell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from filekind.inventory_picker import _native_pick_inventory_windows
+
+    inv = tmp_path / "list.xlsx"
+    inv.write_text("x", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+
+        class Result:
+            returncode = 0
+            stdout = str(inv)
+
+        return Result()
+
+    monkeypatch.setattr("filekind.inventory_picker.subprocess.run", fake_run)
+    monkeypatch.setattr("filekind.inventory_picker.sys.platform", "win32")
+
+    picked = _native_pick_inventory_windows(tmp_path)
+    assert picked == inv.resolve()
+    assert calls
+    assert calls[0][0] == "powershell"
+
+
 def test_save_and_load_last_inventory(tmp_path: Path) -> None:
     config_path = tmp_path / "projects.yaml"
     config_path.touch()

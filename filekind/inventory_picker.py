@@ -189,6 +189,9 @@ def native_pick_inventory_file(*, start_dir: Path) -> Path | None:
         picked = result.stdout.strip()
         return Path(picked).resolve() if picked else None
 
+    if sys.platform == "win32":
+        return _native_pick_inventory_windows(start)
+
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -205,6 +208,40 @@ def native_pick_inventory_file(*, start_dir: Path) -> Path | None:
         return Path(picked).resolve() if picked else None
     except Exception:
         return None
+
+
+def _native_pick_inventory_windows(start: Path) -> Path | None:
+    """Use PowerShell file dialog so frozen builds do not need Tcl/Tk."""
+    start_ps = str(start).replace("'", "''")
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$dialog = New-Object System.Windows.Forms.OpenFileDialog; "
+        "$dialog.Title = '请选择项目清单 Excel'; "
+        f"$dialog.InitialDirectory = '{start_ps}'; "
+        "$dialog.Filter = 'Excel (*.xlsx;*.xlsm)|*.xlsx;*.xlsm|All (*.*)|*.*'; "
+        "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { "
+        "  Write-Output $dialog.FileName "
+        "}"
+    )
+    kwargs: dict = {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Sta", "-Command", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            **kwargs,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    picked = (result.stdout or "").strip()
+    return Path(picked).resolve() if picked else None
 
 
 def resolve_inventory_for_run(

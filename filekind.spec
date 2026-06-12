@@ -128,6 +128,8 @@ a = Analysis(
         "matplotlib",
         "pytest",
         "tensorrt",
+        "tkinter",
+        "_tkinter",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
