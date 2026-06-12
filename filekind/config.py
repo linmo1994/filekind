@@ -205,6 +205,20 @@ def bundle_root() -> Path | None:
     return Path(sys.executable).resolve().parent
 
 
+def internal_bundle_dir() -> Path | None:
+    """PyInstaller one-folder layout: dependencies live beside the exe in _internal/."""
+    if not is_frozen_bundle():
+        return None
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass)
+    root = bundle_root()
+    if root is None:
+        return None
+    internal = root / "_internal"
+    return internal if internal.is_dir() else None
+
+
 def app_root() -> Path:
     """Clerk-facing tool root: exe directory when packaged, else cwd."""
     root = bundle_root()
@@ -312,16 +326,71 @@ def _config_search_candidates() -> list[Path]:
     return ordered
 
 
+def _example_config_paths(*, near: Path | None = None) -> list[Path]:
+    """Ordered example templates usable to bootstrap projects.yaml."""
+    candidates: list[Path] = []
+    if near is not None:
+        candidates.append(near.parent / EXAMPLE_CONFIG_NAME)
+
+    root = bundle_root()
+    if root is not None:
+        candidates.extend(
+            [
+                root / SYSTEM_DIR_NAME / EXAMPLE_CONFIG_NAME,
+                root / EXAMPLE_CONFIG_NAME,
+                root / "_internal" / EXAMPLE_CONFIG_NAME,
+            ]
+        )
+
+    internal = internal_bundle_dir()
+    if internal is not None:
+        candidates.append(internal / EXAMPLE_CONFIG_NAME)
+
+    cwd = Path.cwd()
+    candidates.extend(
+        [
+            cwd / SYSTEM_DIR_NAME / EXAMPLE_CONFIG_NAME,
+            cwd / EXAMPLE_CONFIG_NAME,
+        ]
+    )
+
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        ordered.append(path)
+    return ordered
+
+
 def _bootstrap_config_from_example(target: Path) -> bool:
-    """Create projects.yaml from projects.example.yaml beside it when missing."""
+    """Create projects.yaml from the first available example template."""
     if target.is_file():
         return False
-    example = target.parent / EXAMPLE_CONFIG_NAME
-    if not example.is_file():
-        return False
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(example, target)
-    return True
+    if uses_system_layout() and target.parent.name != SYSTEM_DIR_NAME:
+        target = system_dir() / DEFAULT_CONFIG_NAME
+        if target.is_file():
+            return False
+
+    for example in _example_config_paths(near=target):
+        if not example.is_file():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(example, target)
+        return True
+    return False
+
+
+def ensure_frozen_bundle_config() -> None:
+    """Ensure packaged Windows/mac builds always have _系统/projects.yaml."""
+    if not uses_system_layout():
+        return
+    target = system_dir() / DEFAULT_CONFIG_NAME
+    if target.is_file():
+        return
+    _bootstrap_config_from_example(target)
 
 
 def default_config_search_paths() -> list[Path]:
@@ -340,9 +409,26 @@ def resolve_config_path(explicit: Optional[Path] = None) -> Path:
         if candidate.is_file():
             return candidate.resolve()
 
-    for candidate in default_config_search_paths():
+    bootstrap_targets = list(default_config_search_paths())
+    if uses_system_layout():
+        system_target = system_dir() / DEFAULT_CONFIG_NAME
+        if system_target not in bootstrap_targets:
+            bootstrap_targets.insert(0, system_target)
+
+    for candidate in bootstrap_targets:
         if _bootstrap_config_from_example(candidate):
+            break
+    else:
+        raise ConfigNotFoundError(None, [p.resolve() for p in default_config_search_paths()])
+
+    for candidate in default_config_search_paths():
+        if candidate.is_file():
             return candidate.resolve()
+
+    if uses_system_layout():
+        system_target = system_dir() / DEFAULT_CONFIG_NAME
+        if system_target.is_file():
+            return system_target.resolve()
 
     raise ConfigNotFoundError(None, [p.resolve() for p in default_config_search_paths()])
 
@@ -363,27 +449,20 @@ def config_not_found_hint(exc: ConfigNotFoundError) -> str:
     for path in exc.searched:
         lines.append(f"  - {path}")
 
-    example_sources: list[Path] = [
-        Path.cwd() / EXAMPLE_CONFIG_NAME,
-        system_dir() / EXAMPLE_CONFIG_NAME,
-    ]
+    example_sources: list[Path] = _example_config_paths()
     root = bundle_root()
     if root is not None:
-        example_sources.extend(
-            [
-                root / SYSTEM_DIR_NAME / EXAMPLE_CONFIG_NAME,
-                root / EXAMPLE_CONFIG_NAME,
-            ]
-        )
+        target = system_dir() / DEFAULT_CONFIG_NAME
+    else:
+        target = exc.searched[0] if exc.searched else Path.cwd() / DEFAULT_CONFIG_NAME
 
     for example in example_sources:
         if example.is_file():
-            target = (exc.searched[0] if exc.searched else Path.cwd() / DEFAULT_CONFIG_NAME)
             lines.extend(
                 [
                     "",
                     "首次使用请复制配置模板:",
-                    f"  cp {example} {target.parent / DEFAULT_CONFIG_NAME}",
+                    f"  copy \"{example}\" \"{target}\"",
                     "  # 编辑 projects.yaml 后重新运行（无需 -p 参数）",
                 ]
             )

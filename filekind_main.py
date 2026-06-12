@@ -31,6 +31,9 @@ if sys.platform == "win32":
 multiprocessing.freeze_support()
 
 if __name__ == "__main__":
+    from filekind.config import ensure_frozen_bundle_config
+
+    ensure_frozen_bundle_config()
     auto_clerk = prepare_windows_frozen_default_argv()
     exit_code = run_app()
     maybe_pause_after_auto_clerk(auto_clerk=auto_clerk)

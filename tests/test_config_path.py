@@ -101,6 +101,29 @@ def test_bootstrap_config_from_system_example(
     assert resolved.is_file()
 
 
+def test_frozen_bundle_bootstraps_from_internal_example(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    internal = bundle / "_internal"
+    system = bundle / SYSTEM_DIR_NAME
+    internal.mkdir(parents=True)
+    system.mkdir(parents=True)
+    example = internal / "projects.example.yaml"
+    example.write_text("paths:\n  source: inbox\nprojects: []\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("filekind.config.bundle_root", lambda: bundle)
+    monkeypatch.setattr("filekind.config.is_frozen_bundle", lambda: True)
+    monkeypatch.setattr(
+        "filekind.config.internal_bundle_dir",
+        lambda: internal,
+    )
+
+    resolved = resolve_config_path(None)
+    assert resolved == (system / "projects.yaml").resolve()
+    assert resolved.read_text(encoding="utf-8").startswith("paths:")
+
+
 def test_run_paths_use_app_root_when_config_in_system(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

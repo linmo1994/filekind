@@ -28,6 +28,9 @@ if not exist "%SYS%\projects.yaml" (
   if exist "%SYS%\projects.example.yaml" (
     copy /y "%SYS%\projects.example.yaml" "%SYS%\projects.yaml" >nul
     echo 已从 _系统\projects.example.yaml 生成 _系统\projects.yaml。
+  ) else if exist "_internal\projects.example.yaml" (
+    copy /y "_internal\projects.example.yaml" "%SYS%\projects.yaml" >nul
+    echo 已从 _internal\projects.example.yaml 生成 _系统\projects.yaml。
   ) else if exist "projects.example.yaml" (
     copy /y "projects.example.yaml" "%SYS%\projects.yaml" >nul
     echo 已从 projects.example.yaml 生成 _系统\projects.yaml。
